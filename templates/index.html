@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stripe Payment</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+        .login-container {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            padding: 40px;
+            width: 100%;
+            max-width: 350px;
+            text-align: center;
+        }
+        h2 { margin-bottom: 20px; color: #333; font-weight: 600; }
+        .input-field {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #333;
+            font-size: 16px;
+        }
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            background: gray;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: not-allowed;
+            transition: all 0.3s ease;
+        }
+        .login-btn.active {
+            background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+            cursor: pointer;
+        }
+        .login-btn.disabled {
+            background: #aaa;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h2>Stripe Payment</h2>
+        <div id="card-element" class="input-field"></div>
+        <div id="turnstile-widget" 
+             class="cf-turnstile" 
+             data-sitekey="your_site_key" 
+             data-action="stripe-payment" 
+             data-callback="onTurnstileSuccess" 
+             style="display: none;">
+        </div>
+        <button id="pay-button" class="login-btn disabled">Pay $1.00</button>
+    </div>
+
+    <script>
+        const stripe = Stripe('你的pk');
+        const elements = stripe.elements();
+        const card = elements.create('card');
+        card.mount('#card-element');
+
+        let turnstileToken = null;
+        let widgetId = null;
+
+        // 支付按钮
+        const payButton = document.getElementById('pay-button');
+
+        // Turnstile 验证成功回调
+        function onTurnstileSuccess(token) {
+            turnstileToken = token;
+            payButton.classList.remove('disabled');
+            payButton.classList.add('active');
+            payButton.textContent = "Pay $1.00";
+            payButton.disabled = false;
+        }
+
+        // 初始化 Turnstile
+        function initializeTurnstile() {
+            if (widgetId) {
+                turnstile.reset(widgetId);
+            } else {
+                widgetId = turnstile.render('#turnstile-widget', {
+                    sitekey: '你的密钥', //替换为你的密钥
+                    action: 'stripe-payment',
+                    callback: onTurnstileSuccess
+                });
+            }
+        }
+
+        // 点击支付按钮
+        payButton.addEventListener('click', async () => {
+            if (!turnstileToken) {
+                alert("Turnstile 验证失败，请重试！");
+                return;
+            }
+
+            // 禁用按钮并显示“请稍等...”
+            payButton.textContent = "请稍等...";
+            payButton.classList.add('disabled');
+            payButton.disabled = true;
+
+            const response = await fetch('/create-payment-intent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ turnstileToken: turnstileToken })
+            });
+
+            const data = await response.json();
+
+            // 恢复按钮状态
+            payButton.disabled = false;
+            payButton.classList.remove('disabled');
+            payButton.classList.add('active');
+            payButton.textContent = "Pay $1.00";
+
+            if (data.error) {
+                alert("错误: " + data.error);
+                return;
+            }
+
+            if (data.clientSecret) {
+                const { error } = await stripe.confirmCardPayment(data.clientSecret, { payment_method: { card: card } });
+                if (error) {
+                    console.error("支付失败：", error);
+                    alert("支付失败: " + error.message);
+                } else {
+                    alert("支付成功!");
+                }
+            }
+        });
+
+        // 页面加载时初始化 Turnstile
+        initializeTurnstile();
+    </script>
+</body>
+</html>
